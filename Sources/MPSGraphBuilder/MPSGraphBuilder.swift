@@ -675,7 +675,7 @@ class MPSGraphBuilder {
     }
 }
 
-func mlmodelToMPSGraph(from source: URL) throws -> (MPSGraph, [String:MPSGraphTensor], [String:MPSGraphTensor]) {
+public func mlmodelToMPSGraph(from source: URL) throws -> (MPSGraph, [String:MPSGraphTensor], [String:MPSGraphTensor]) {
     let builder = MPSGraphBuilder()
     return try builder.build(from: source)
 }
