@@ -171,7 +171,7 @@ class MPSGraphBuilder {
         case .reLu(let p):
             tensors[output] = graph.reLU(with: tensors[input0]!, name: name)
         case .leakyReLu(let p):
-            if #available(macOS 12, *) {
+            if #available(macOS 12.0, iOS 15.0, macCatalyst 15.0, *) {
                 tensors[output] = graph.leakyReLU(with: tensors[input0]!, alpha: Double(p.alpha), name: name)
             } else {
                 fatalError("not available")
