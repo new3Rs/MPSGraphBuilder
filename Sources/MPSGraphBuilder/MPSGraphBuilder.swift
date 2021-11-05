@@ -262,7 +262,7 @@ class MPSGraphBuilder {
         }
     }
 
-    func build(from source: URL) throws -> (CoreML_Specification_Metadata, [String:MPSGraphTensor], [String:MPSGraphTensor], MPSGraph) {
+    func build(from source: URL) throws -> ([String:String], [String:MPSGraphTensor], [String:MPSGraphTensor], MPSGraph) {
         let data = try Data(contentsOf: source)
         let model = try CoreML_Specification_Model(serializedData: data)
         var inputs = [String:MPSGraphTensor]()
@@ -671,11 +671,11 @@ class MPSGraphBuilder {
                 fatalError("no such output")
             }
         }
-        return (model.description_p.metadata, inputs, outputs, graph)
+        return (model.description_p.metadata.userDefined, inputs, outputs, graph)
     }
 }
 
-public func mlmodelToMPSGraph(from source: URL) throws -> (CoreML_Specification_Metadata, [String:MPSGraphTensor], [String:MPSGraphTensor], MPSGraph)  {
+public func mlmodelToMPSGraph(from source: URL) throws -> ([String:String], [String:MPSGraphTensor], [String:MPSGraphTensor], MPSGraph)  {
     let builder = MPSGraphBuilder()
     return try builder.build(from: source)
 }
