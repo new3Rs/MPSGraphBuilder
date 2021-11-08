@@ -25,6 +25,7 @@ class MPSGraphBuilder {
     let graph = MPSGraph()
     var dataType = MPSDataType.float32
     var tensors = [String:MPSGraphTensor]()
+    var variableBatches = false
 
     private func convert(weights: CoreML_Specification_WeightParams, shape: [Int], doTranspose: Bool = false) throws -> MPSGraphTensor {
         let _shape = doTranspose ? [shape[1], shape[0]] : shape
@@ -271,7 +272,9 @@ class MPSGraphBuilder {
         case 1, 2:
             for input in model.description_p.input {
                 var shape = input.type.multiArrayType.shape.map { NSNumber(value: $0) }
+                assert(shape.count == 3)
                 shape.insert(NSNumber(value: -1), at: 0)
+                variableBatches = true
                 let placeholder = graph.placeholder(shape: shape, dataType: try convertType(input.type.multiArrayType.dataType), name: input.name)
                 inputs[input.name] = placeholder
                 tensors[input.name] = placeholder
@@ -281,6 +284,7 @@ class MPSGraphBuilder {
                 var shape = input.type.multiArrayType.shape.map { NSNumber(value: $0) }
                 if input.type.multiArrayType.shapeRange.sizeRanges[0].upperBound == -1 { // バッチが可変なら
                     shape[0] = -1
+                    variableBatches = true
                 }
                 let placeholder = graph.placeholder(shape: shape, dataType: try convertType(input.type.multiArrayType.dataType), name: input.name)
                 inputs[input.name] = placeholder
@@ -364,7 +368,11 @@ class MPSGraphBuilder {
             case .reshape(let params):
                 switch params.mode {
                 case .channelFirst:
-                    tensors[layer.output[0]] = graph.reshape(tensors[input0]!, shape: params.targetShape.map { NSNumber(value: $0) }, name: layer.name)
+                    var shape = params.targetShape.map { NSNumber(value: $0) }
+                    if variableBatches {
+                        shape[0] = -1
+                    }
+                    tensors[layer.output[0]] = graph.reshape(tensors[input0]!, shape: shape, name: layer.name)
                 case .channelLast:
                     let input = tensors[input0]!
                     var shape = input.shape!
@@ -376,6 +384,9 @@ class MPSGraphBuilder {
                     targetShape[shape.endIndex - 1] = 1
                     targetShape[shape.endIndex - 2] = NSNumber(value: Int(params.targetShape[params.targetShape.endIndex - 3]))
                     targetShape[shape.endIndex - 3] = NSNumber(value: Int(params.targetShape[params.targetShape.endIndex - 2]) * Int(params.targetShape[params.targetShape.endIndex - 1]))
+                    if variableBatches {
+                        targetShape[0] = -1
+                    }
                     let flattenHW2 = graph.reshape(transposed, shape: targetShape, name: nil) // [[S,]B,HW,C,1]
                     let transposed2 = graph.transposeTensor(flattenHW2, dimension: shape.endIndex - 2, withDimension: shape.endIndex - 3, name: nil)
                     tensors[layer.output[0]] = graph.reshape(transposed2, shape: params.targetShape.map { NSNumber(value: Int($0)) }, name: layer.name)
