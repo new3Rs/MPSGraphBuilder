@@ -209,7 +209,10 @@ class MPSGraphBuilder {
         }
 
         func innerProduct(name: String?) throws -> MPSGraphTensor {
-            let shape = tensors[input0]!.shape!
+            var shape = tensors[input0]!.shape!
+            if variableBatches {
+                shape[0] = -1
+            }
             let weightShape = [params.outputChannels, params.inputChannels]
             let secondary = try convert(weights: params.weights, shape: weightShape, doTranspose: true)
             let primary: MPSGraphTensor
