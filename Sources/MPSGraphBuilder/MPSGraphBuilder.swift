@@ -209,7 +209,7 @@ class MPSGraphBuilder {
         }
 
         func innerProduct(name: String?) throws -> MPSGraphTensor {
-            var shape = tensors[input0]!.shape!
+            var  shape = tensors[input0]!.shape!
             if variableBatches {
                 shape[0] = -1
             }
@@ -378,21 +378,23 @@ class MPSGraphBuilder {
                     tensors[layer.output[0]] = graph.reshape(tensors[input0]!, shape: shape, name: layer.name)
                 case .channelLast:
                     let input = tensors[input0]!
-                    var shape = input.shape!
+                    var shape = input.shape! // [[S,]B,C,H,W]
                     shape[shape.endIndex - 2] = NSNumber(value: shape[shape.endIndex - 2].intValue * shape[shape.endIndex - 1].intValue)
                     shape[shape.endIndex - 1] = 1
-                    let flattenHW = graph.reshape(input, shape: shape, name: nil) // [[S,]B,C,HW, 1]
-                    let transposed = graph.transposeTensor(flattenHW, dimension: shape.endIndex - 2, withDimension: shape.endIndex - 3, name: nil)
-                    var targetShape = params.targetShape.map { NSNumber(value: Int($0)) }
-                    targetShape[shape.endIndex - 1] = 1
-                    targetShape[shape.endIndex - 2] = NSNumber(value: Int(params.targetShape[params.targetShape.endIndex - 3]))
-                    targetShape[shape.endIndex - 3] = NSNumber(value: Int(params.targetShape[params.targetShape.endIndex - 2]) * Int(params.targetShape[params.targetShape.endIndex - 1]))
+                    let flattenHW = graph.reshape(input, shape: shape, name: nil) // [[S,]B,C,HW,1]
+                    let transposed = graph.transposeTensor(flattenHW, dimension: shape.endIndex - 2, withDimension: shape.endIndex - 3, name: nil) // [[S,]B,HW,C,1]
+                    var targetShape = params.targetShape.map { NSNumber(value: Int($0)) } // [[S,]B,C',H',W']
                     if variableBatches {
                         targetShape[0] = -1
                     }
-                    let flattenHW2 = graph.reshape(transposed, shape: targetShape, name: nil) // [[S,]B,HW,C,1]
-                    let transposed2 = graph.transposeTensor(flattenHW2, dimension: shape.endIndex - 2, withDimension: shape.endIndex - 3, name: nil)
-                    tensors[layer.output[0]] = graph.reshape(transposed2, shape: params.targetShape.map { NSNumber(value: Int($0)) }, name: layer.name)
+                    var targetShape2 = targetShape
+                    targetShape2[shape.endIndex - 1] = 1
+                    targetShape2[shape.endIndex - 2] = NSNumber(value: Int(targetShape[targetShape.endIndex - 3]))
+                    targetShape2[shape.endIndex - 3] = NSNumber(value: Int(targetShape[targetShape.endIndex - 2]) * Int(targetShape[targetShape.endIndex - 1]))
+                    let flattenHW2 = graph.reshape(transposed, shape: targetShape2, name: nil) // [[S,]B,H'W',C',1]
+                    let transposed2 = graph.transposeTensor(flattenHW2, dimension: targetShape2.endIndex - 2, withDimension: targetShape2.endIndex - 3, name: nil) // [[S,]B,C',H'W',1]
+
+                    tensors[layer.output[0]] = graph.reshape(transposed2, shape: targetShape, name: layer.name) // [[S,]B,C',H',W']
                 default:
                     fatalError("unrecognized mode")
                 }
