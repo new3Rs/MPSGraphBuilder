@@ -209,7 +209,7 @@ class MPSGraphBuilder {
         }
 
         func innerProduct(name: String?) throws -> MPSGraphTensor {
-            var  shape = tensors[input0]!.shape!
+            var shape = tensors[input0]!.shape!
             if variableBatches {
                 shape[0] = -1
             }
@@ -234,7 +234,18 @@ class MPSGraphBuilder {
         }
 
         if params.hasBias {
-            tensors[output] = graph.addition(try innerProduct(name: nil), try convert(weights: params.bias, shape: [1, params.outputChannels, 1, 1]), name: name)
+            var biasShape = tensors[input0]!.shape!.map { $0.intValue }
+            switch biasShape.count {
+            case 1:
+                biasShape[0] = Int(params.outputChannels)
+            case 2, 4:
+                biasShape[1] = Int(params.outputChannels)
+            case 3, 5:
+                biasShape[2] = Int(params.outputChannels)
+            default:
+                throw ConvertError.notAvailable
+            }
+            tensors[output] = graph.addition(try innerProduct(name: nil), try convert(weights: params.bias, shape: biasShape), name: name)
         } else {
             tensors[output] = try innerProduct(name: name)
         }
@@ -285,7 +296,7 @@ class MPSGraphBuilder {
         default:
             for input in model.description_p.input {
                 var shape = input.type.multiArrayType.shape.map { NSNumber(value: $0) }
-                if input.type.multiArrayType.shapeRange.sizeRanges[0].upperBound == -1 { // バッチが可変なら
+                if input.type.multiArrayType.shapeRange.sizeRanges.first?.upperBound == -1 { // バッチが可変なら
                     shape[0] = -1
                     variableBatches = true
                 }
@@ -296,7 +307,12 @@ class MPSGraphBuilder {
         }
         
         for (number, layer) in model.neuralNetwork.layers.enumerated() {
+            print(number, layer.name, String(describing: layer.layer).split(whereSeparator: \.isNewline)[0])
+            fflush(stdout)
             if case .loadConstant(let params) = layer.layer {
+                tensors[layer.output[0]] = try convert(weights: params.data, shape: params.shape)
+                continue
+            } else if case .loadConstantNd(let params) = layer.layer {
                 tensors[layer.output[0]] = try convert(weights: params.data, shape: params.shape)
                 continue
             }
@@ -304,6 +320,10 @@ class MPSGraphBuilder {
                 fatalError("should not reach here")
             }
             switch layer.layer {
+            case .loadConstant(let params):
+                fatalError("should not reach here")
+            case .loadConstantNd(let params):
+                fatalError("should not reach here")
             /// Start at 100 here
             case .convolution(let params):
                 try addConvolution(layer.name, layer.input, layer.output[0], params)
@@ -317,7 +337,21 @@ class MPSGraphBuilder {
                 fatalError("not implemented yet")
             /// Normalization-related Layers
             case .batchnorm(let params):
-                fatalError("not implemented yet")
+                print(tensors[input0]!.shape)
+                fflush(stdout)
+                guard let inputShape = tensors[input0]?.shape, inputShape.count >= 3 else {
+                    throw ConvertError.wrongFormat
+                }
+                var weightShape = [Int](repeating: 1, count: inputShape.count)
+                weightShape[weightShape.count - 3] = Int(params.channels)
+                tensors[layer.output[0]] = graph.normalize(
+                    tensors[input0]!,
+                    mean: try convert(weights: params.mean, shape: weightShape),
+                    variance: try convert(weights: params.variance, shape: weightShape),
+                    gamma: try convert(weights: params.gamma, shape: weightShape),
+                    beta: try convert(weights: params.beta, shape: weightShape),
+                    epsilon: params.epsilon,
+                    name: layer.name)
             case .mvn(let params):
                 fatalError("not implemented yet")
             case .l2Normalize(let params):
@@ -365,8 +399,6 @@ class MPSGraphBuilder {
                 fatalError("not implemented yet")
             case .reduce(let params):
                 fatalError("not implemented yet")
-            case .loadConstant(let params):
-                fatalError("should not reach here")
             /// Data Reorganization
             case .reshape(let params):
                 switch params.mode {
@@ -568,8 +600,6 @@ class MPSGraphBuilder {
             /// Tensor Allocation / Reshape-related Operations
             case .getShape(let params):
                 fatalError("not implemented yet")
-            case .loadConstantNd(let params):
-                fatalError("not implemented yet")
             case .fillLike(let params):
                 fatalError("not implemented yet")
             case .fillStatic(let params):
@@ -583,9 +613,9 @@ class MPSGraphBuilder {
             case .broadcastToDynamic(let params):
                 fatalError("not implemented yet")
             case .squeeze(let params):
-                fatalError("not implemented yet")
+                tensors[layer.output[0]] = graph.squeeze(tensors[input0]!, axes: params.axes.map { NSNumber(value: $0) }, name: layer.name)
             case .expandDims(let params):
-                fatalError("not implemented yet")
+                tensors[layer.output[0]] = graph.expandDims(tensors[input0]!, axes: params.axes.map { NSNumber(value: $0) }, name: layer.name)
             case .flattenTo2D(let params):
                 fatalError("not implemented yet")
             case .reshapeLike(let params):
@@ -625,7 +655,7 @@ class MPSGraphBuilder {
             case .reduceL2(let params):
                 fatalError("not implemented yet")
             case .reduceMax(let params):
-                fatalError("not implemented yet")
+                tensors[layer.output[0]] = graph.reductionMaximum(with: tensors[input0]!, axes: params.axes.map { NSNumber(value: $0) }, name: layer.name)
             case .reduceMin(let params):
                 fatalError("not implemented yet")
             case .reduceSum(let params):
