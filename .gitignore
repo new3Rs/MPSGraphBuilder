@@ -6,4 +6,5 @@ xcuserdata/
 DerivedData/
 .swiftpm/xcode/package.xcworkspace/contents.xcworkspacedata
 coremltools/
+Sources/MPSGraphBuilder/format/
 Tests/MPSGraphBuilderTests/MLModels/
