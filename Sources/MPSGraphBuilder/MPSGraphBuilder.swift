@@ -535,7 +535,7 @@ class MPSGraphBuilder {
             case .maxBroadcastable(let params):
                 fatalError("not implemented yet")
             case .addBroadcastable(let params):
-                fatalError("not implemented yet")
+                tensors[layer.output[0]] = graph.addition(tensors[input0]!, tensors[layer.input[1]]!, name: layer.name)
             case .powBroadcastable(let params):
                 fatalError("not implemented yet")
             case .divideBroadcastable(let params):
