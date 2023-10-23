@@ -16,7 +16,6 @@ func convertType(_ type: CoreML_Specification_ArrayFeatureType.ArrayDataType) th
     case .int32:
         return .int32
     default:
-        print("convertType", type)
         throw ConvertError.notAvailable
     }
 }
@@ -30,7 +29,6 @@ class MPSGraphBuilder {
     private func convert(weights: CoreML_Specification_WeightParams, shape: [Int], doTranspose: Bool = false) throws -> MPSGraphTensor {
         let _shape = doTranspose ? [shape[1], shape[0]] : shape
         if weights.hasQuantization {
-            print("convert(weights:shape:doTranspose:)")
             throw ConvertError.notAvailable
         } else if !weights.floatValue.isEmpty {
             let data: Data
@@ -234,7 +232,7 @@ class MPSGraphBuilder {
         }
 
         if params.hasBias {
-            var biasShape = tensors[input0]!.shape!.map { $0.intValue }
+            var biasShape = [Int](repeating: 1, count: tensors[input0]!.shape!.count)
             switch biasShape.count {
             case 1:
                 biasShape[0] = Int(params.outputChannels)
@@ -307,8 +305,6 @@ class MPSGraphBuilder {
         }
         
         for (number, layer) in model.neuralNetwork.layers.enumerated() {
-            print(number, layer.name, String(describing: layer.layer).split(whereSeparator: \.isNewline)[0])
-            fflush(stdout)
             if case .loadConstant(let params) = layer.layer {
                 tensors[layer.output[0]] = try convert(weights: params.data, shape: params.shape)
                 continue
@@ -337,8 +333,6 @@ class MPSGraphBuilder {
                 fatalError("not implemented yet")
             /// Normalization-related Layers
             case .batchnorm(let params):
-                print(tensors[input0]!.shape)
-                fflush(stdout)
                 guard let inputShape = tensors[input0]?.shape, inputShape.count >= 3 else {
                     throw ConvertError.wrongFormat
                 }

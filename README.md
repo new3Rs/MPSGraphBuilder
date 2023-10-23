@@ -3,6 +3,7 @@ MPSGraphBuilder builds an MPSGraph instance from a .mlmodel format file.
 
 # How to build
 ```sh
+brew install swift-protobuf
 make preprocess
 swift build
 ```
