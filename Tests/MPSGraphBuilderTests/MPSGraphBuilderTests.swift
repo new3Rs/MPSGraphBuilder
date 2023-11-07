@@ -13,7 +13,9 @@ final class MPSGraphBuilderTests: XCTestCase {
 
     func testPerformanceKataGo() throws {
         let batch = NSNumber(value: 16)
-        let device = MTLCreateSystemDefaultDevice()!
+        guard let device = MTLCreateSystemDefaultDevice() else { 
+           fatalError( "Failed to get the system's default Metal device." ) 
+        }
         let (userDefined, inputs, outputs, graph) = try mlmodelToMPSGraph(from: Bundle.module.url(forResource: "MLModels/KataGoKata1_b18c384nbts658", withExtension: "mlmodel")!)
         let feeds = [
             inputs["bin_inputs"]!: MPSGraphTensorData(MPSNDArray(device: device, descriptor: MPSNDArrayDescriptor(dataType: .float32, shape: [batch,22,19,19]))),
