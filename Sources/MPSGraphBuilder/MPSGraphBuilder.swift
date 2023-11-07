@@ -43,7 +43,7 @@ class MPSGraphBuilder {
             } else {
                 data = weights.floatValue.withUnsafeBufferPointer { Data(buffer: $0) }
             }
-            return graph.constant(data, shape: _shape.map { NSNumber(value: $0) }, dataType: .float32)
+            return graph.constant(data, shape: _shape.map { NSNumber(value: $0) }, dataType: dataType)
         } else if !weights.float16Value.isEmpty {
             let size = weights.float16Value.count / MemoryLayout<UInt16>.stride
             var uint16 = [UInt16](unsafeUninitializedCapacity: size) { buffer, initializedCount in
@@ -66,7 +66,7 @@ class MPSGraphBuilder {
                 throw ConvertError.wrongFormat
             }
             let data = float32.withUnsafeBufferPointer { Data(buffer: $0) }
-            return graph.constant(data, shape: _shape.map { NSNumber(value: $0) }, dataType: .float32)
+            return graph.constant(data, shape: _shape.map { NSNumber(value: $0) }, dataType: dataType)
         } else {
             throw ConvertError.wrongFormat
         }
@@ -182,7 +182,11 @@ class MPSGraphBuilder {
         case .tanh(let p):
             tensors[output] = graph.tanh(with: tensors[input0]!, name: name)
         case .scaledTanh(let p):
-            fatalError("not implemented yet")
+            let alpha = graph.constant(Double(p.alpha), dataType: dataType)
+            let beta = graph.constant(Double(p.beta), dataType: dataType)
+            tensors[output] = graph.multiplication(
+                graph.tanh(with: graph.multiplication(tensors[input0]!, beta, name: nil), name: nil),
+                alpha, name: name)
         case .sigmoid(let p):
             tensors[output] = graph.sigmoid(with: tensors[input0]!, name: name)
         case .sigmoidHard(let p):
@@ -590,7 +594,7 @@ class MPSGraphBuilder {
             case .embeddingNd(let params):
                 fatalError("not implemented yet")
             case .batchedMatmul(let params):
-                fatalError("not implemented yet")
+                tensors[layer.output[0]] = graph.matrixMultiplication(primary: tensors[layer.input[0]]!, secondary: tensors[layer.input[1]]!, name: layer.name)
             /// Tensor Allocation / Reshape-related Operations
             case .getShape(let params):
                 fatalError("not implemented yet")
