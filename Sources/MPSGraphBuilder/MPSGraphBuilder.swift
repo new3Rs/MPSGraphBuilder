@@ -76,7 +76,7 @@ class MPSGraphBuilder {
         return try convert(weights: weights, shape: shape.map { Int($0) }, doTranspose: doTranspose)
     }
 
-    private func addConvolution(_ name: String, _ inputs: [String], _ output: String, _ params: CoreML_Specification_ConvolutionLayerParams) throws {
+    private func addConvolution(_ name: String, _ inputs: [String], _ params: CoreML_Specification_ConvolutionLayerParams) throws -> MPSGraphTensor {
         func getDescriptor(from params: CoreML_Specification_ConvolutionLayerParams) -> MPSGraphConvolution2DOpDescriptor {
             func convert(style: CoreML_Specification_ConvolutionLayerParams.OneOf_ConvolutionPaddingType) -> MPSGraphPaddingStyle {
                 switch style {
@@ -109,13 +109,13 @@ class MPSGraphBuilder {
         let descriptor = getDescriptor(from: params)
         if params.hasBias_p && params.hasBias {
             let conv = graph.convolution2D(tensors[input0]!, weights: weights, descriptor: descriptor, name: nil)
-            tensors[output] = graph.addition(conv, try self.convert(weights: params.bias, shape: [1, params.outputChannels, 1, 1]), name: name)
+            return graph.addition(conv, try self.convert(weights: params.bias, shape: [1, params.outputChannels, 1, 1]), name: name)
         } else {
-            tensors[output] = graph.convolution2D(tensors[input0]!, weights: weights, descriptor: descriptor, name: name)
+            return graph.convolution2D(tensors[input0]!, weights: weights, descriptor: descriptor, name: name)
         }
     }
 
-    private func addPooling(_ name: String, _ inputs: [String], _ output: String, _ params: CoreML_Specification_PoolingLayerParams) throws {
+    private func addPooling(_ name: String, _ inputs: [String], _ params: CoreML_Specification_PoolingLayerParams) throws -> MPSGraphTensor {
         func getDescriptor(from params: CoreML_Specification_PoolingLayerParams, shape: [Int]) throws -> MPSGraphPooling2DOpDescriptor {
             let paddingStyle: MPSGraphPaddingStyle
             switch params.poolingPaddingType {
@@ -149,9 +149,9 @@ class MPSGraphBuilder {
         let descriptor = try getDescriptor(from: params, shape: tensors[input0]!.shape!.map { $0.intValue })
         switch params.type {
             case .max:
-                tensors[output] = graph.maxPooling2D(withSourceTensor: tensors[input0]!, descriptor: descriptor, name: name)
+                return graph.maxPooling2D(withSourceTensor: tensors[input0]!, descriptor: descriptor, name: name)
             case .average:
-                tensors[output] = graph.avgPooling2D(withSourceTensor: tensors[input0]!, descriptor: descriptor, name: name)
+                return graph.avgPooling2D(withSourceTensor: tensors[input0]!, descriptor: descriptor, name: name)
             case .l2:
                 throw ConvertError.notAvailable
             default:
@@ -159,19 +159,19 @@ class MPSGraphBuilder {
         }
     }
 
-    private func addActivation(_ name: String, _ inputs: [String], _ output: String, _ params: CoreML_Specification_ActivationParams) throws {
+    private func addActivation(_ name: String, _ inputs: [String], _ params: CoreML_Specification_ActivationParams) throws -> MPSGraphTensor {
         guard let input0 = inputs.first else {
             throw ConvertError.wrongFormat
         }
 
         switch params.nonlinearityType {
         case .linear(let p):
-            tensors[output] = graph.addition(graph.multiplication(tensors[input0]!, graph.constant(Double(p.alpha), dataType: dataType), name: nil), graph.constant(Double(p.beta), dataType: dataType), name: name)
+            return graph.addition(graph.multiplication(tensors[input0]!, graph.constant(Double(p.alpha), dataType: dataType), name: nil), graph.constant(Double(p.beta), dataType: dataType), name: name)
         case .reLu(let p):
-            tensors[output] = graph.reLU(with: tensors[input0]!, name: name)
+            return graph.reLU(with: tensors[input0]!, name: name)
         case .leakyReLu(let p):
             if #available(macOS 12.0, iOS 15.0, macCatalyst 15.0, *) {
-                tensors[output] = graph.leakyReLU(with: tensors[input0]!, alpha: Double(p.alpha), name: name)
+                return graph.leakyReLU(with: tensors[input0]!, alpha: Double(p.alpha), name: name)
             } else {
                 fatalError("not available")
             }
@@ -180,24 +180,24 @@ class MPSGraphBuilder {
         case .preLu(let p):
             fatalError("not implemented yet")
         case .tanh(let p):
-            tensors[output] = graph.tanh(with: tensors[input0]!, name: name)
+            return graph.tanh(with: tensors[input0]!, name: name)
         case .scaledTanh(let p):
             let alpha = graph.constant(Double(p.alpha), dataType: dataType)
             let beta = graph.constant(Double(p.beta), dataType: dataType)
-            tensors[output] = graph.multiplication(
+            return graph.multiplication(
                 graph.tanh(with: graph.multiplication(tensors[input0]!, beta, name: nil), name: nil),
                 alpha, name: name)
         case .sigmoid(let p):
-            tensors[output] = graph.sigmoid(with: tensors[input0]!, name: name)
+            return graph.sigmoid(with: tensors[input0]!, name: name)
         case .sigmoidHard(let p):
             let linear = graph.addition(graph.multiplication(tensors[input0]!, graph.constant(Double(p.alpha), dataType: dataType), name: nil), graph.constant(Double(p.beta), dataType: dataType), name: nil)
-            tensors[output] = graph.minimum(graph.maximum(linear, graph.constant(0.0, dataType: dataType), name: nil), graph.constant(1.0, dataType: dataType), name: name)
+            return graph.minimum(graph.maximum(linear, graph.constant(0.0, dataType: dataType), name: nil), graph.constant(1.0, dataType: dataType), name: name)
         case .elu(let p):
             fatalError("not implemented yet")
         case .softsign(let p):
-            tensors[output] = graph.division(tensors[input0]!, graph.addition(graph.absolute(with: tensors[input0]!, name: nil), graph.constant(1.0, dataType: dataType), name: nil), name: name)
+            return graph.division(tensors[input0]!, graph.addition(graph.absolute(with: tensors[input0]!, name: nil), graph.constant(1.0, dataType: dataType), name: nil), name: name)
         case .softplus(let p):
-            tensors[output] = graph.logarithm(with: graph.addition(graph.exponent(with: tensors[input0]!, name: nil), graph.constant(1.0, dataType: dataType), name: nil), name: name)
+            return graph.logarithm(with: graph.addition(graph.exponent(with: tensors[input0]!, name: nil), graph.constant(1.0, dataType: dataType), name: nil), name: name)
         case .parametricSoftplus(let p):
             fatalError("not implemented yet")
         case .none:
@@ -205,7 +205,7 @@ class MPSGraphBuilder {
         }
     }
 
-    private func addInnerProduct(_ name: String, _ inputs: [String], _ output: String, _ params: CoreML_Specification_InnerProductLayerParams) throws {
+    private func addInnerProduct(_ name: String, _ inputs: [String], _ params: CoreML_Specification_InnerProductLayerParams) throws -> MPSGraphTensor {
         guard let input0 = inputs.first else {
             throw ConvertError.wrongFormat
         }
@@ -247,31 +247,31 @@ class MPSGraphBuilder {
             default:
                 throw ConvertError.notAvailable
             }
-            tensors[output] = graph.addition(try innerProduct(name: nil), try convert(weights: params.bias, shape: biasShape), name: name)
+            return graph.addition(try innerProduct(name: nil), try convert(weights: params.bias, shape: biasShape), name: name)
         } else {
-            tensors[output] = try innerProduct(name: name)
+            return try innerProduct(name: name)
         }
     }
 
-    private func addUnary(_ name: String, _ inputs: [String], _ output: String, _ params: CoreML_Specification_UnaryFunctionLayerParams) throws {
+    private func addUnary(_ name: String, _ inputs: [String], _ params: CoreML_Specification_UnaryFunctionLayerParams) throws -> MPSGraphTensor {
         guard let input0 = inputs.first else {
             throw ConvertError.wrongFormat
         }
         switch params.type {
         case .abs:
-            tensors[output] = graph.absolute(with: tensors[input0]!, name: name)
+            return graph.absolute(with: tensors[input0]!, name: name)
         case .sqrt:
-            tensors[output] = graph.squareRoot(with: tensors[input0]!, name: name)
+            return graph.squareRoot(with: tensors[input0]!, name: name)
         case .rsqrt:
-            tensors[output] = graph.reverseSquareRoot(with: tensors[input0]!, name: name)
+            return graph.reverseSquareRoot(with: tensors[input0]!, name: name)
         case .inverse:
-            tensors[output] = graph.division(graph.constant(1.0, dataType: dataType), tensors[input0]!, name: name)
+            return graph.division(graph.constant(1.0, dataType: dataType), tensors[input0]!, name: name)
         case .power:
-            tensors[output] = graph.power(tensors[input0]!, graph.constant(Double(params.alpha), dataType: dataType), name: name)
+            return graph.power(tensors[input0]!, graph.constant(Double(params.alpha), dataType: dataType), name: name)
         case .exp:
-            tensors[output] = graph.exponent(with: tensors[input0]!, name: name)
+            return graph.exponent(with: tensors[input0]!, name: name)
         case .log:
-            tensors[output] = graph.logarithm(with: tensors[input0]!, name: name)
+            return graph.logarithm(with: tensors[input0]!, name: name)
         case .threshold:
             fatalError("not implemented yet")
         default:
@@ -316,9 +316,11 @@ class MPSGraphBuilder {
                 tensors[layer.output[0]] = try convert(weights: params.data, shape: params.shape)
                 continue
             }
-            guard let input0 = layer.input.first else {
+
+            guard let input0Name = layer.input.first, let input0 = tensors[input0Name] else {
                 fatalError("should not reach here")
             }
+            let output: MPSGraphTensor;
             switch layer.layer {
             case .loadConstant(let params):
                 fatalError("should not reach here")
@@ -326,24 +328,24 @@ class MPSGraphBuilder {
                 fatalError("should not reach here")
             /// Start at 100 here
             case .convolution(let params):
-                try addConvolution(layer.name, layer.input, layer.output[0], params)
+                output = try addConvolution(layer.name, layer.input, params)
             case .pooling(let params):
-                try addPooling(layer.name, layer.input, layer.output[0], params)
+                output = try addPooling(layer.name, layer.input, params)
             case .activation(let params):
-                try addActivation(layer.name, layer.input, layer.output[0], params)
+                output = try addActivation(layer.name, layer.input, params)
             case .innerProduct(let params):
-                try addInnerProduct(layer.name, layer.input, layer.output[0], params)
+                output = try addInnerProduct(layer.name, layer.input, params)
             case .embedding(let params):
                 fatalError("not implemented yet")
             /// Normalization-related Layers
             case .batchnorm(let params):
-                guard let inputShape = tensors[input0]?.shape, inputShape.count >= 3 else {
+                guard let inputShape = input0.shape, inputShape.count >= 3 else {
                     throw ConvertError.wrongFormat
                 }
                 var weightShape = [Int](repeating: 1, count: inputShape.count)
                 weightShape[weightShape.count - 3] = Int(params.channels)
-                tensors[layer.output[0]] = graph.normalize(
-                    tensors[input0]!,
+                output = graph.normalize(
+                    input0,
                     mean: try convert(weights: params.mean, shape: weightShape),
                     variance: try convert(weights: params.variance, shape: weightShape),
                     gamma: try convert(weights: params.gamma, shape: weightShape),
@@ -355,7 +357,7 @@ class MPSGraphBuilder {
             case .l2Normalize(let params):
                 fatalError("not implemented yet")
             case .softmax(let params):
-                tensors[layer.output[0]] = graph.softMax(with: tensors[input0]!, axis: 1, name: layer.name)
+                output = graph.softMax(with: input0, axis: 1, name: layer.name)
             case .lrn(let params):
                 fatalError("not implemented yet")
             case .crop(let params):
@@ -369,30 +371,32 @@ class MPSGraphBuilder {
             case .cropResize(let params):
                 fatalError("not implemented yet")
             case .unary(let params):
-                try addUnary(layer.name, layer.input, layer.output[0], params)
+                output = try addUnary(layer.name, layer.input, params)
             /// Element-wise Operations
             case .add(let params):
                 if layer.input.count == 1 {
-                    tensors[layer.output[0]] = graph.addition(tensors[input0]!, graph.constant(Double(params.alpha), dataType: dataType), name: layer.name)
+                    output = graph.addition(input0, graph.constant(Double(params.alpha), dataType: dataType), name: layer.name)
+                } else if layer.input.count == 2 {
+                    output = graph.addition(input0, tensors[layer.input[1]]!, name: layer.name)
                 } else {
-                    tensors[layer.output[0]] = graph.addition(tensors[input0]!, tensors[layer.input[1]]!, name: layer.name)
+                    fatalError("not implemented yet")
                 }
             case .multiply(let params):
                 if layer.input.count == 1 {
-                    tensors[layer.output[0]] = graph.multiplication(tensors[input0]!, graph.constant(Double(params.alpha), dataType: dataType), name: layer.name)
+                    output = graph.multiplication(input0, graph.constant(Double(params.alpha), dataType: dataType), name: layer.name)
                 } else {
-                    tensors[layer.output[0]] = graph.multiplication(tensors[input0]!, tensors[layer.input[1]]!, name: layer.name)
+                    output = graph.multiplication(input0, tensors[layer.input[1]]!, name: layer.name)
                 }
             case .average(let params):
                 fatalError("not implemented yet")
             case .scale(let params):
                 fatalError("not implemented yet")
             case .bias(let params):
-                tensors[layer.output[0]] = graph.addition(tensors[input0]!, try convert(weights: params.bias, shape: params.shape), name: layer.name)
+                output = graph.addition(input0, try convert(weights: params.bias, shape: params.shape), name: layer.name)
             case .max(let params):
-                tensors[layer.output[0]] = graph.maximum(tensors[input0]!, tensors[layer.input[1]]!, name: layer.name)
+                output = graph.maximum(input0, tensors[layer.input[1]]!, name: layer.name)
             case .min(let params):
-                tensors[layer.output[0]] = graph.minimum(tensors[input0]!, tensors[layer.input[1]]!, name: layer.name)
+                output = graph.minimum(input0, tensors[layer.input[1]]!, name: layer.name)
             case .dot(let params):
                 fatalError("not implemented yet")
             case .reduce(let params):
@@ -405,9 +409,9 @@ class MPSGraphBuilder {
                     if variableBatches {
                         shape[0] = -1
                     }
-                    tensors[layer.output[0]] = graph.reshape(tensors[input0]!, shape: shape, name: layer.name)
+                    output = graph.reshape(input0, shape: shape, name: layer.name)
                 case .channelLast:
-                    let input = tensors[input0]!
+                    let input = input0
                     var shape = input.shape! // [[S,]B,C,H,W]
                     shape[shape.endIndex - 2] = NSNumber(value: shape[shape.endIndex - 2].intValue * shape[shape.endIndex - 1].intValue)
                     shape[shape.endIndex - 1] = 1
@@ -424,17 +428,17 @@ class MPSGraphBuilder {
                     let flattenHW2 = graph.reshape(transposed, shape: targetShape2, name: nil) // [[S,]B,H'W',C',1]
                     let transposed2 = graph.transposeTensor(flattenHW2, dimension: targetShape2.endIndex - 2, withDimension: targetShape2.endIndex - 3, name: nil) // [[S,]B,C',H'W',1]
 
-                    tensors[layer.output[0]] = graph.reshape(transposed2, shape: targetShape, name: layer.name) // [[S,]B,C',H',W']
+                    output = graph.reshape(transposed2, shape: targetShape, name: layer.name) // [[S,]B,C',H',W']
                 default:
                     fatalError("unrecognized mode")
                 }
             case .flatten(let params):
-                //tensors[input0] = graph.flatten2D(tensors[input0]!, axis: params.axis, name: layer.name)
+                //tensors[input0] = graph.flatten2D(input0, axis: params.axis, name: layer.name)
                 fatalError("not implemented yet")
             case .permute(let params):
                 fatalError("not implemented yet")
             case .concat(let params):
-                tensors[layer.output[0]] = graph.concatTensors(layer.input.map { tensors[$0]! }, dimension: params.sequenceConcat ? -5 : -3, name: layer.name)
+                output = graph.concatTensors(layer.input.map { tensors[$0]! }, dimension: params.sequenceConcat ? -5 : -3, name: layer.name)
             case .split(let params):
                 fatalError("not implemented yet")
             case .sequenceRepeat(let params):
@@ -442,7 +446,7 @@ class MPSGraphBuilder {
             case .reorganizeData(let params):
                 fatalError("not implemented yet")
             case .slice(let params):
-                tensors[layer.output[0]] = graph.sliceTensor(tensors[input0]!, dimension: params.axis.rawValue, start: Int(params.startIndex), length: Int(params.endIndex - params.startIndex), name: layer.name)
+                output = graph.sliceTensor(input0, dimension: params.axis.rawValue, start: Int(params.startIndex), length: Int(params.endIndex - params.startIndex), name: layer.name)
             /// Recurrent Layers
             case .simpleRecurrent(let params):
                 fatalError("not implemented yet")
@@ -474,39 +478,39 @@ class MPSGraphBuilder {
             case .clip(let params):
                 fatalError("not implemented yet")
             case .ceil(let params):
-                tensors[layer.output[0]] = graph.ceil(with: tensors[input0]!, name: layer.name)
+                output = graph.ceil(with: input0, name: layer.name)
             case .floor(let params):
-                tensors[layer.output[0]] = graph.floor(with: tensors[input0]!, name: layer.name)
+                output = graph.floor(with: input0, name: layer.name)
             case .sign(let params):
                 fatalError("not implemented yet")
             case .round(let params):
-                tensors[layer.output[0]] = graph.round(with: tensors[input0]!, name: layer.name)
+                output = graph.round(with: input0, name: layer.name)
             case .exp2(let params):
-                tensors[layer.output[0]] = graph.exponentBase2(with: tensors[input0]!, name: layer.name)
+                output = graph.exponentBase2(with: input0, name: layer.name)
             case .sin(let params):
-                tensors[layer.output[0]] = graph.sin(with: tensors[input0]!, name: layer.name)
+                output = graph.sin(with: input0, name: layer.name)
             case .cos(let params):
-                tensors[layer.output[0]] = graph.cos(with: tensors[input0]!, name: layer.name)
+                output = graph.cos(with: input0, name: layer.name)
             case .tan(let params):
-                tensors[layer.output[0]] = graph.tan(with: tensors[input0]!, name: layer.name)
+                output = graph.tan(with: input0, name: layer.name)
             case .asin(let params):
-                tensors[layer.output[0]] = graph.asin(with: tensors[input0]!, name: layer.name)
+                output = graph.asin(with: input0, name: layer.name)
             case .acos(let params):
-                tensors[layer.output[0]] = graph.acos(with: tensors[input0]!, name: layer.name)
+                output = graph.acos(with: input0, name: layer.name)
             case .atan(let params):
-                tensors[layer.output[0]] = graph.atan(with: tensors[input0]!, name: layer.name)
+                output = graph.atan(with: input0, name: layer.name)
             case .sinh(let params):
-                tensors[layer.output[0]] = graph.sinh(with: tensors[input0]!, name: layer.name)
+                output = graph.sinh(with: input0, name: layer.name)
             case .cosh(let params):
-                tensors[layer.output[0]] = graph.cosh(with: tensors[input0]!, name: layer.name)
+                output = graph.cosh(with: input0, name: layer.name)
             case .tanh(let params):
-                tensors[layer.output[0]] = graph.tanh(with: tensors[input0]!, name: layer.name)
+                output = graph.tanh(with: input0, name: layer.name)
             case .asinh(let params):
-                tensors[layer.output[0]] = graph.asinh(with: tensors[input0]!, name: layer.name)
+                output = graph.asinh(with: input0, name: layer.name)
             case .acosh(let params):
-                tensors[layer.output[0]] = graph.acosh(with: tensors[input0]!, name: layer.name)
+                output = graph.acosh(with: input0, name: layer.name)
             case .atanh(let params):
-                tensors[layer.output[0]] = graph.atanh(with: tensors[input0]!, name: layer.name)
+                output = graph.atanh(with: input0, name: layer.name)
             case .erf(let params):
                 fatalError("not implemented yet")
             case .gelu(let params):
@@ -539,7 +543,7 @@ class MPSGraphBuilder {
             case .maxBroadcastable(let params):
                 fatalError("not implemented yet")
             case .addBroadcastable(let params):
-                tensors[layer.output[0]] = graph.addition(tensors[input0]!, tensors[layer.input[1]]!, name: layer.name)
+                output = graph.addition(input0, tensors[layer.input[1]]!, name: layer.name)
             case .powBroadcastable(let params):
                 fatalError("not implemented yet")
             case .divideBroadcastable(let params):
@@ -594,7 +598,7 @@ class MPSGraphBuilder {
             case .embeddingNd(let params):
                 fatalError("not implemented yet")
             case .batchedMatmul(let params):
-                tensors[layer.output[0]] = graph.matrixMultiplication(primary: tensors[layer.input[0]]!, secondary: tensors[layer.input[1]]!, name: layer.name)
+                output = graph.matrixMultiplication(primary: tensors[layer.input[0]]!, secondary: tensors[layer.input[1]]!, name: layer.name)
             /// Tensor Allocation / Reshape-related Operations
             case .getShape(let params):
                 fatalError("not implemented yet")
@@ -611,15 +615,15 @@ class MPSGraphBuilder {
             case .broadcastToDynamic(let params):
                 fatalError("not implemented yet")
             case .squeeze(let params):
-                tensors[layer.output[0]] = graph.squeeze(tensors[input0]!, axes: params.axes.map { NSNumber(value: $0) }, name: layer.name)
+                output = graph.squeeze(input0, axes: params.axes.map { NSNumber(value: $0) }, name: layer.name)
             case .expandDims(let params):
-                tensors[layer.output[0]] = graph.expandDims(tensors[input0]!, axes: params.axes.map { NSNumber(value: $0) }, name: layer.name)
+                output = graph.expandDims(input0, axes: params.axes.map { NSNumber(value: $0) }, name: layer.name)
             case .flattenTo2D(let params):
                 fatalError("not implemented yet")
             case .reshapeLike(let params):
                 fatalError("not implemented yet")
             case .reshapeStatic(let params):
-                tensors[layer.output[0]] = graph.reshape(tensors[input0]!, shape: params.targetShape.map { NSNumber(value: $0) }, name: layer.name)
+                output = graph.reshape(input0, shape: params.targetShape.map { NSNumber(value: $0) }, name: layer.name)
             case .reshapeDynamic(let params):
                 fatalError("not implemented yet")
             case .rankPreservingReshape(let params):
@@ -653,7 +657,7 @@ class MPSGraphBuilder {
             case .reduceL2(let params):
                 fatalError("not implemented yet")
             case .reduceMax(let params):
-                tensors[layer.output[0]] = graph.reductionMaximum(with: tensors[input0]!, axes: params.axes.map { NSNumber(value: $0) }, name: layer.name)
+                output = graph.reductionMaximum(with: input0, axes: params.axes.map { NSNumber(value: $0) }, name: layer.name)
             case .reduceMin(let params):
                 fatalError("not implemented yet")
             case .reduceSum(let params):
@@ -705,6 +709,7 @@ class MPSGraphBuilder {
             case .none:
                 fatalError("not implemented yet")
             }
+            tensors[layer.output[0]] = output;
         }
         for output in model.description_p.output {
             if let tensor = tensors[output.name] {
