@@ -22,51 +22,73 @@ func convertType(_ type: CoreML_Specification_ArrayFeatureType.ArrayDataType) th
 
 class MPSGraphBuilder {
     let graph = MPSGraph()
-    var dataType = MPSDataType.float32
+    let dataType: MPSDataType
     var tensors = [String:MPSGraphTensor]()
     var variableBatches = false
+
+    init(dataType: MPSDataType) {
+        self.dataType = dataType
+    }
 
     private func convert(weights: CoreML_Specification_WeightParams, shape: [Int], doTranspose: Bool = false) throws -> MPSGraphTensor {
         let _shape = doTranspose ? [shape[1], shape[0]] : shape
         if weights.hasQuantization {
             throw ConvertError.notAvailable
         } else if !weights.floatValue.isEmpty {
-            let data: Data
-            if doTranspose && shape.count == 2 {
-                var transposed = [Float](repeating: 0.0, count: weights.floatValue.count)
-                for x in 0..<shape[1] {
-                    for y in 0..<shape[0] {
-                        transposed[x * shape[0] + y] = weights.floatValue[y * shape[1] + x]
+            switch dataType {
+                case .float32:
+                let data: Data
+                if doTranspose && shape.count == 2 {
+                    var transposed = [Float](repeating: 0.0, count: weights.floatValue.count)
+                    for x in 0..<shape[1] {
+                        for y in 0..<shape[0] {
+                            transposed[x * shape[0] + y] = weights.floatValue[y * shape[1] + x]
+                        }
+                    }
+                    data = transposed.withUnsafeBufferPointer { Data(buffer: $0) }
+                } else {
+                    data = weights.floatValue.withUnsafeBufferPointer { Data(buffer: $0) }
+                }
+                return graph.constant(data, shape: _shape.map { NSNumber(value: $0) }, dataType: dataType)
+                case .float16:
+                let data: Data
+                var converted = [Float16](repeating: 0.0, count: weights.floatValue.count)
+                if doTranspose && shape.count == 2 {
+                    for x in 0..<shape[1] {
+                        for y in 0..<shape[0] {
+                            converted[x * shape[0] + y] = Float16(weights.floatValue[y * shape[1] + x])
+                        }
+                    }
+                } else {
+                    for i in 0..<weights.floatValue.count {
+                        converted[i] = Float16(weights.floatValue[i])
                     }
                 }
-                data = transposed.withUnsafeBufferPointer { Data(buffer: $0) }
-            } else {
-                data = weights.floatValue.withUnsafeBufferPointer { Data(buffer: $0) }
+                data = converted.withUnsafeBufferPointer { Data(buffer: $0) }
+                return graph.constant(data, shape: _shape.map { NSNumber(value: $0) }, dataType: dataType)
+                default:
+                fatalError("not supported yet")
             }
-            return graph.constant(data, shape: _shape.map { NSNumber(value: $0) }, dataType: dataType)
         } else if !weights.float16Value.isEmpty {
-            let size = weights.float16Value.count / MemoryLayout<UInt16>.stride
-            var uint16 = [UInt16](unsafeUninitializedCapacity: size) { buffer, initializedCount in
-                let _ = weights.float16Value.copyBytes(to: buffer)
-                initializedCount = size
-            }
+            assert(dataType == .float16)
             if doTranspose && shape.count == 2 {
-                var transposed = [UInt16](repeating: 0, count: size)
-                for x in 0..<shape[1] {
-                    for y in 0..<shape[0] {
-                        transposed[x * shape[0] + y] = uint16[y * shape[1] + x]
+                let size = weights.float16Value.count / MemoryLayout<Float16>.stride
+                let transposed = [Float16](unsafeUninitializedCapacity: size) { ptr, initializedSize in
+                    weights.float16Value.withUnsafeBytes { (dataPtr: UnsafeRawBufferPointer) in
+                        let dataSize = MemoryLayout<Float16>.stride / MemoryLayout<UInt8>.stride
+                        for x in 0..<shape[1] {
+                            for y in 0..<shape[0] {
+                                ptr[x * shape[0] + y] = dataPtr.load(fromByteOffset: dataSize * (y * shape[1] + x), as: Float16.self)
+                            }
+                        }
+                        initializedSize = size
                     }
                 }
-                uint16 = transposed
+                let data = transposed.withUnsafeBufferPointer { Data(buffer: $0) }
+                return graph.constant(data, shape: _shape.map { NSNumber(value: $0) }, dataType: dataType)
+            } else {
+                return graph.constant(weights.float16Value, shape: _shape.map { NSNumber(value: $0) }, dataType: dataType)
             }
-            var float32 = [Float](repeating: 0.0, count: size)
-            var sourceBuffer = vImage_Buffer(data: &uint16, height: 1, width: UInt(uint16.count), rowBytes: MemoryLayout<UInt16>.stride)
-            var destinationBuffer = vImage_Buffer(data: &float32, height: 1, width: UInt(uint16.count), rowBytes: MemoryLayout<Float>.stride)
-            if vImageConvert_Planar16FtoPlanarF(&sourceBuffer, &destinationBuffer, 0) != kvImageNoError {
-                throw ConvertError.wrongFormat
-            }
-            let data = float32.withUnsafeBufferPointer { Data(buffer: $0) }
-            return graph.constant(data, shape: _shape.map { NSNumber(value: $0) }, dataType: dataType)
         } else {
             throw ConvertError.wrongFormat
         }
@@ -291,7 +313,7 @@ class MPSGraphBuilder {
                 assert(shape.count == 3)
                 shape.insert(NSNumber(value: -1), at: 0)
                 variableBatches = true
-                let placeholder = graph.placeholder(shape: shape, dataType: try convertType(input.type.multiArrayType.dataType), name: input.name)
+                let placeholder = graph.placeholder(shape: shape, dataType: dataType, name: input.name)
                 inputs[input.name] = placeholder
                 tensors[input.name] = placeholder
             }
@@ -302,7 +324,7 @@ class MPSGraphBuilder {
                     shape[0] = -1
                     variableBatches = true
                 }
-                let placeholder = graph.placeholder(shape: shape, dataType: try convertType(input.type.multiArrayType.dataType), name: input.name)
+                let placeholder = graph.placeholder(shape: shape, dataType: dataType, name: input.name)
                 inputs[input.name] = placeholder
                 tensors[input.name] = placeholder
             }
@@ -724,7 +746,7 @@ class MPSGraphBuilder {
     }
 }
 
-public func mlmodelToMPSGraph(from source: URL) throws -> ([String:String], [String:MPSGraphTensor], [String:MPSGraphTensor], MPSGraph)  {
-    let builder = MPSGraphBuilder()
+public func mlmodelToMPSGraph(from source: URL, dataType: MPSDataType) throws -> ([String:String], [String:MPSGraphTensor], [String:MPSGraphTensor], MPSGraph)  {
+    let builder = MPSGraphBuilder(dataType: dataType)
     return try builder.build(from: source)
 }
