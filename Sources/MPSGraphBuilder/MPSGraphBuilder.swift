@@ -3,21 +3,9 @@ import Accelerate
 import MetalPerformanceShadersGraph
 
 enum ConvertError: Error {
-    case notAvailable
     case wrongFormat
-}
-
-func convertType(_ type: CoreML_Specification_ArrayFeatureType.ArrayDataType) throws -> MPSDataType {
-    switch type {
-    case .invalidArrayDataType:
-        return .invalid
-    case .float32, .double: // converts double to float32 since MPSGraph does not support double.
-        return .float32
-    case .int32:
-        return .int32
-    default:
-        throw ConvertError.notAvailable
-    }
+    case notAvailable
+    case notImplementedYet
 }
 
 class MPSGraphBuilder {
@@ -37,12 +25,12 @@ class MPSGraphBuilder {
             }
         }
         let _shape = doTranspose ? [shape[1], shape[0]] : shape
+        let data: Data
         if weights.hasQuantization {
-            throw ConvertError.notAvailable
+            throw ConvertError.notImplementedYet
         } else if !weights.floatValue.isEmpty {
             switch dataType {
                 case .float32:
-                let data: Data
                 if doTranspose {
                     let transposed = [Float](unsafeUninitializedCapacity: weights.floatValue.count) { ptr, size in
                         for x in 0..<shape[1] {
@@ -56,9 +44,7 @@ class MPSGraphBuilder {
                 } else {
                     data = weights.floatValue.withUnsafeBufferPointer { Data(buffer: $0) }
                 }
-                return graph.constant(data, shape: _shape.map { NSNumber(value: $0) }, dataType: dataType)
                 case .float16:
-                let data: Data
                 var converted = [Float16](repeating: 0.0, count: weights.floatValue.count)
                 if doTranspose {
                     for x in 0..<shape[1] {
@@ -72,7 +58,6 @@ class MPSGraphBuilder {
                     }
                 }
                 data = converted.withUnsafeBufferPointer { Data(buffer: $0) }
-                return graph.constant(data, shape: _shape.map { NSNumber(value: $0) }, dataType: dataType)
                 default:
                 fatalError("not supported yet")
             }
@@ -91,14 +76,14 @@ class MPSGraphBuilder {
                         initializedSize = size
                     }
                 }
-                let data = transposed.withUnsafeBufferPointer { Data(buffer: $0) }
-                return graph.constant(data, shape: _shape.map { NSNumber(value: $0) }, dataType: dataType)
+                data = transposed.withUnsafeBufferPointer { Data(buffer: $0) }
             } else {
-                return graph.constant(weights.float16Value, shape: _shape.map { NSNumber(value: $0) }, dataType: dataType)
+                data = weights.float16Value
             }
         } else {
             throw ConvertError.wrongFormat
         }
+        return graph.constant(data, shape: _shape.map { NSNumber(value: $0) }, dataType: dataType)
     }
 
     private func convert(weights: CoreML_Specification_WeightParams, shape: [UInt64], doTranspose: Bool = false) throws -> MPSGraphTensor {
@@ -106,28 +91,7 @@ class MPSGraphBuilder {
     }
 
     private func addConvolution(_ name: String, _ inputs: [String], _ params: CoreML_Specification_ConvolutionLayerParams) throws -> MPSGraphTensor {
-        func getDescriptor(from params: CoreML_Specification_ConvolutionLayerParams) -> MPSGraphConvolution2DOpDescriptor {
-            func convert(style: CoreML_Specification_ConvolutionLayerParams.OneOf_ConvolutionPaddingType) -> MPSGraphPaddingStyle {
-                switch style {
-                case .valid(_):
-                    return .TF_VALID
-                case .same(_):
-                    return .TF_SAME
-                }
-            }
-            return MPSGraphConvolution2DOpDescriptor(
-                strideInX: Int(params.stride[1]),
-                strideInY: Int(params.stride[0]),
-                dilationRateInX: Int(params.dilationFactor[1]),
-                dilationRateInY: Int(params.dilationFactor[0]),
-                groups: Int(params.nGroups),
-                paddingStyle: convert(style: params.convolutionPaddingType!),
-                dataLayout: .NCHW, 
-                weightsLayout: .OIHW
-            )!
-        }
-
-        guard let input0 = inputs.first else {
+        guard let input0Name = inputs.first, let input0 = tensors[input0Name] else {
             throw ConvertError.wrongFormat
         }
 
@@ -135,52 +99,26 @@ class MPSGraphBuilder {
             throw ConvertError.notAvailable
         }
         let weights = try self.convert(weights: params.weights, shape: [params.outputChannels, params.kernelChannels] + params.kernelSize)
-        let descriptor = getDescriptor(from: params)
+        let descriptor = MPSGraphConvolution2DOpDescriptor.from(params)
         if params.hasBias_p && params.hasBias {
-            let conv = graph.convolution2D(tensors[input0]!, weights: weights, descriptor: descriptor, name: nil)
+            let conv = graph.convolution2D(input0, weights: weights, descriptor: descriptor, name: nil)
             return graph.addition(conv, try self.convert(weights: params.bias, shape: [1, params.outputChannels, 1, 1]), name: name)
         } else {
-            return graph.convolution2D(tensors[input0]!, weights: weights, descriptor: descriptor, name: name)
+            return graph.convolution2D(input0, weights: weights, descriptor: descriptor, name: name)
         }
     }
 
     private func addPooling(_ name: String, _ inputs: [String], _ params: CoreML_Specification_PoolingLayerParams) throws -> MPSGraphTensor {
-        func getDescriptor(from params: CoreML_Specification_PoolingLayerParams, shape: [Int]) throws -> MPSGraphPooling2DOpDescriptor {
-            let paddingStyle: MPSGraphPaddingStyle
-            switch params.poolingPaddingType {
-            case .valid(_):
-                paddingStyle = .TF_VALID
-            case .same(_):
-                paddingStyle = .TF_SAME
-            default:
-                throw ConvertError.notAvailable
-            }
-            return MPSGraphPooling2DOpDescriptor(
-                kernelWidth: params.globalPooling ? shape[3] : Int(params.kernelSize[1]),
-                kernelHeight: params.globalPooling ? shape[2] : Int(params.kernelSize[0]),
-                strideInX: params.globalPooling ? shape[3] : Int(params.stride[1]),
-                strideInY: params.globalPooling ? shape[2] : Int(params.stride[0]),
-                dilationRateInX: 1,
-                dilationRateInY: 1,
-                paddingLeft: 0, 
-                paddingRight: 0, 
-                paddingTop: 0, 
-                paddingBottom: 0, 
-                paddingStyle: paddingStyle, 
-                dataLayout: .NCHW
-            )!
-        }
-
-        guard let input0 = inputs.first else {
+        guard let input0Name = inputs.first, let input0 = tensors[input0Name] else {
             throw ConvertError.wrongFormat
         }
 
-        let descriptor = try getDescriptor(from: params, shape: tensors[input0]!.shape!.map { $0.intValue })
+        let descriptor = try MPSGraphPooling2DOpDescriptor.from(params, shape: input0.shape!.map { $0.intValue })
         switch params.type {
             case .max:
-                return graph.maxPooling2D(withSourceTensor: tensors[input0]!, descriptor: descriptor, name: name)
+                return graph.maxPooling2D(withSourceTensor: input0, descriptor: descriptor, name: name)
             case .average:
-                return graph.avgPooling2D(withSourceTensor: tensors[input0]!, descriptor: descriptor, name: name)
+                return graph.avgPooling2D(withSourceTensor: input0, descriptor: descriptor, name: name)
             case .l2:
                 throw ConvertError.notAvailable
             default:
@@ -189,21 +127,21 @@ class MPSGraphBuilder {
     }
 
     private func addActivation(_ name: String, _ inputs: [String], _ params: CoreML_Specification_ActivationParams) throws -> MPSGraphTensor {
-        guard let input0 = inputs.first else {
+        guard let input0Name = inputs.first, let input0 = tensors[input0Name] else {
             throw ConvertError.wrongFormat
         }
 
         switch params.nonlinearityType {
         case .linear(let p):
             return graph.addition(
-                graph.multiplication(tensors[input0]!, graph.constant(Double(p.alpha), dataType: dataType), name: nil),
+                graph.multiplication(input0, graph.constant(Double(p.alpha), dataType: dataType), name: nil),
                 graph.constant(Double(p.beta), dataType: dataType),
                 name: name)
         case .reLu(let p):
-            return graph.reLU(with: tensors[input0]!, name: name)
+            return graph.reLU(with: input0, name: name)
         case .leakyReLu(let p):
             if #available(macOS 12.0, iOS 15.0, macCatalyst 15.0, *) {
-                return graph.leakyReLU(with: tensors[input0]!, alpha: Double(p.alpha), name: name)
+                return graph.leakyReLU(with: input0, alpha: Double(p.alpha), name: name)
             } else {
                 fatalError("not available")
             }
@@ -212,18 +150,18 @@ class MPSGraphBuilder {
         case .preLu(let p):
             fatalError("not implemented yet")
         case .tanh(let p):
-            return graph.tanh(with: tensors[input0]!, name: name)
+            return graph.tanh(with: input0, name: name)
         case .scaledTanh(let p):
             let alpha = graph.constant(Double(p.alpha), dataType: dataType)
             let beta = graph.constant(Double(p.beta), dataType: dataType)
             return graph.multiplication(
-                graph.tanh(with: graph.multiplication(tensors[input0]!, beta, name: nil), name: nil),
+                graph.tanh(with: graph.multiplication(input0, beta, name: nil), name: nil),
                 alpha, name: name)
         case .sigmoid(let p):
-            return graph.sigmoid(with: tensors[input0]!, name: name)
+            return graph.sigmoid(with: input0, name: name)
         case .sigmoidHard(let p):
             let linear = graph.addition(
-                graph.multiplication(tensors[input0]!, graph.constant(Double(p.alpha), dataType: dataType), name: nil),
+                graph.multiplication(input0, graph.constant(Double(p.alpha), dataType: dataType), name: nil),
                 graph.constant(Double(p.beta), dataType: dataType),
                 name: nil)
             return graph.minimum(
@@ -234,13 +172,13 @@ class MPSGraphBuilder {
             fatalError("not implemented yet")
         case .softsign(let p):
             return graph.division(
-                tensors[input0]!,
-                graph.addition(graph.absolute(with: tensors[input0]!, name: nil), graph.constant(1.0, dataType: dataType), name: nil),
+                input0,
+                graph.addition(graph.absolute(with: input0, name: nil), graph.constant(1.0, dataType: dataType), name: nil),
                 name: name)
         case .softplus(let p):
             return graph.logarithm(
                 with: graph.addition(
-                    graph.exponent(with: tensors[input0]!, name: nil),
+                    graph.exponent(with: input0, name: nil),
                     graph.constant(1.0, dataType: dataType),
                     name: nil),
                 name: name)

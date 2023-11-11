@@ -8,11 +8,11 @@ final class MPSGraphBuilderTests: XCTestCase {
     }
 
     func testKataGo() throws {
-        XCTAssertNoThrow(try mlmodelToMPSGraph(from: Bundle.module.url(forResource: "MLModels/KataGoKata1_b18c384nbts658", withExtension: "mlmodel")!, dataType: .float32))
+        XCTAssertNoThrow(try mlmodelToMPSGraph(from: Bundle.module.url(forResource: "MLModels/KataGoKata1_b18c384nbts7709", withExtension: "mlmodel")!, dataType: .float32))
     }
 
     func testKataGoFp16() throws {
-        XCTAssertNoThrow(try mlmodelToMPSGraph(from: Bundle.module.url(forResource: "MLModels/KataGoKata1_b18c384nbts658", withExtension: "mlmodel")!, dataType: .float16))
+        XCTAssertNoThrow(try mlmodelToMPSGraph(from: Bundle.module.url(forResource: "MLModels/KataGoKata1_b18c384nbts7709", withExtension: "mlmodel")!, dataType: .float16))
     }
 
     func testPerformanceKataGo() throws {
@@ -21,7 +21,7 @@ final class MPSGraphBuilderTests: XCTestCase {
         guard let device = MTLCreateSystemDefaultDevice() else { 
            fatalError( "Failed to get the system's default Metal device." ) 
         }
-        let (userDefined, inputs, outputs, graph) = try mlmodelToMPSGraph(from: Bundle.module.url(forResource: "MLModels/KataGoKata1_b18c384nbts658", withExtension: "mlmodel")!, dataType: dataType)
+        let (userDefined, inputs, outputs, graph) = try mlmodelToMPSGraph(from: Bundle.module.url(forResource: "MLModels/KataGoKata1_b18c384nbts7709", withExtension: "mlmodel")!, dataType: dataType)
         let feeds = [
             inputs["bin_inputs"]!: MPSGraphTensorData(MPSNDArray(device: device, descriptor: MPSNDArrayDescriptor(dataType: dataType, shape: [batch,22,19,19]))),
             inputs["global_inputs"]!: MPSGraphTensorData(MPSNDArray(device: device, descriptor: MPSNDArrayDescriptor(dataType: dataType, shape: [batch,19]))),
