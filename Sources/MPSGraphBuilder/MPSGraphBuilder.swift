@@ -579,7 +579,11 @@ class MPSGraphBuilder {
             case .softmaxNd(let params):
                 output = graph.softMax(with: input0, axis: Int(params.axis), name: layer.name)
             case .gatherAlongAxis(let params):
-                output = graph.gatherAlongAxis(Int(params.axis), updates: input0, indices: tensors[layer.input[1]]!, name: layer.name)
+                if #available(iOS 15.4, *) {
+                    output = graph.gatherAlongAxis(Int(params.axis), updates: input0, indices: tensors[layer.input[1]]!, name: layer.name)
+                } else {
+                    fatalError("not implemented yet")
+                }
             case .scatterAlongAxis(let params):
                 if #available(iOS 15.4, *) {
                     func scatterMode(_ mode: CoreML_Specification_ScatterMode) -> MPSGraphScatterMode {
