@@ -423,7 +423,7 @@ class MPSGraphBuilder {
             case .flatten(let params):
                 fatalError("not implemented yet")
             case .permute(let params):
-                if #available(macOS 13.0, *) {
+                if #available(iOS 16.0, macOS 13.0, *) {
                     var axis = params.axis.map { NSNumber(value: $0 == 0 ? $0 : $0 + 1) }
                     axis.insert(NSNumber(value: 1), at: 1)
                     output = graph.transpose(input0, permutation: axis, name: layer.name)
@@ -557,9 +557,17 @@ class MPSGraphBuilder {
                     fatalError("not implemented yet")
                 }
             case .stack(let params):
-                output = graph.stack(layer.input.map { tensors[$0]! }, axis: Int(params.axis), name: layer.name)
+                if #available(iOS 15.4, *) {
+                    output = graph.stack(layer.input.map { tensors[$0]! }, axis: Int(params.axis), name: layer.name)
+                } else {
+                    fatalError("not implemented yet")
+                }
             case .gather(let params):
-                output = graph.gatherAlongAxis(Int(params.axis), updates: input0, indices: tensors[layer.input[1]]!, name: layer.name)
+                if #available(iOS 15.4, *) {
+                    output = graph.gatherAlongAxis(Int(params.axis), updates: input0, indices: tensors[layer.input[1]]!, name: layer.name)
+                } else {
+                    fatalError("not implemented yet")
+                }
             case .scatter(let params):
                 // Core ML Format Reference Specificationに実装情報がない
                 fatalError("not implemented yet")
@@ -573,38 +581,46 @@ class MPSGraphBuilder {
             case .gatherAlongAxis(let params):
                 output = graph.gatherAlongAxis(Int(params.axis), updates: input0, indices: tensors[layer.input[1]]!, name: layer.name)
             case .scatterAlongAxis(let params):
-                func scatterMode(_ mode: CoreML_Specification_ScatterMode) -> MPSGraphScatterMode {
-                    switch mode {
-                        case .scatterAdd:
-                        return .add
-                        case .scatterDiv:
-                        return .div
-                        case .scatterMax:
-                        return .max
-                        case .scatterMin:
-                        return .min
-                        case .scatterMul:
-                        return .mul
-                        case .scatterSub:
-                        return .sub
-                        case .scatterUpdate:
-                        fatalError("not implemented yet")
-                        default:
-                        fatalError("should not reach here")
+                if #available(iOS 15.4, *) {
+                    func scatterMode(_ mode: CoreML_Specification_ScatterMode) -> MPSGraphScatterMode {
+                        switch mode {
+                            case .scatterAdd:
+                            return .add
+                            case .scatterDiv:
+                            return .div
+                            case .scatterMax:
+                            return .max
+                            case .scatterMin:
+                            return .min
+                            case .scatterMul:
+                            return .mul
+                            case .scatterSub:
+                            return .sub
+                            case .scatterUpdate:
+                            fatalError("not implemented yet")
+                            default:
+                            fatalError("should not reach here")
+                        }
                     }
+                    output = graph.scatterAlongAxis(
+                        Int(params.axis),
+                        data: input0,
+                        updates: tensors[layer.input[2]]!,
+                        indices: tensors[layer.input[1]]!,
+                        mode: scatterMode(params.mode),
+                        name: layer.name)
+                } else {
+                    fatalError("not implemented yet")
                 }
-                output = graph.scatterAlongAxis(
-                    Int(params.axis),
-                    data: input0,
-                    updates: tensors[layer.input[2]]!,
-                    indices: tensors[layer.input[1]]!,
-                    mode: scatterMode(params.mode),
-                    name: layer.name)
             case .reverse(let params):
-                output = graph.reverse(
-                    input0,
-                    axes: params.reverseDim.enumerated().compactMap { $0.1 ? NSNumber(value: $0.0) : nil },
-                    name: layer.name)
+                if #available(iOS 15.0, *) {
+                    output = graph.reverse(
+                        input0,
+                        axes: params.reverseDim.enumerated().compactMap { $0.1 ? NSNumber(value: $0.0) : nil },
+                        name: layer.name)
+                } else {
+                    fatalError("not implemented yet")
+                }
             case .reverseSeq(let params):
                 fatalError("not implemented yet")
             case .splitNd(let params):
@@ -613,7 +629,7 @@ class MPSGraphBuilder {
             case .concatNd(let params):
                 output = graph.concatTensors(layer.input.map { tensors[$0]! }, dimension: Int(params.axis), name: layer.name)
             case .transpose(let params):
-                if #available(macOS 13.0, *) {
+                if #available(iOS 16.0, macOS 13.0, *) {
                     output = graph.transpose(input0, permutation: params.axes.map { NSNumber(value: $0) }, name: layer.name)
                 } else {
                     fatalError("not implemented yet")
@@ -648,82 +664,138 @@ class MPSGraphBuilder {
             case .fillDynamic(let params):
                 fatalError("not implemented yet")
             case .broadcastToLike(let params):
-                output = graph.broadcast(input0, shape: tensors[layer.input[1]]!.shape!, name: layer.name)
+                if #available(iOS 15.0, *) {
+                    output = graph.broadcast(input0, shape: tensors[layer.input[1]]!.shape!, name: layer.name)
+                } else {
+                    fatalError("not implemented yet")
+                }
             case .broadcastToStatic(let params):
-                output = graph.broadcast(input0, shape: params.targetShape.map { NSNumber(value: $0) }, name: layer.name)
+                if #available(iOS 15.0, *) {
+                    output = graph.broadcast(input0, shape: params.targetShape.map { NSNumber(value: $0) }, name: layer.name)
+                } else {
+                    fatalError("not implemented yet")
+                }
             case .broadcastToDynamic(let params):
-                output = graph.broadcast(input0, shapeTensor: tensors[layer.input[1]]!, name: layer.name)
+                if #available(iOS 15.0, *) {
+                    output = graph.broadcast(input0, shapeTensor: tensors[layer.input[1]]!, name: layer.name)
+                } else {
+                    fatalError("not implemented yet")
+                }
             case .squeeze(let params):
-                output = graph.squeeze(input0, axes: params.axes.map { NSNumber(value: $0) }, name: layer.name)
+                if #available(iOS 15.4, *) {
+                    output = graph.squeeze(input0, axes: params.axes.map { NSNumber(value: $0) }, name: layer.name)
+                } else {
+                    fatalError("not implemented yet")
+                }
             case .expandDims(let params):
-                output = graph.expandDims(input0, axes: params.axes.map { NSNumber(value: $0) }, name: layer.name)
+                if #available(iOS 15.4, *) {
+                    output = graph.expandDims(input0, axes: params.axes.map { NSNumber(value: $0) }, name: layer.name)
+                } else {
+                    fatalError("not implemented yet")
+                }
             case .flattenTo2D(let params):
                 fatalError("not implemented yet")
             case .reshapeLike(let params):
-                output = graph.reshape(input0, shape: tensors[layer.input[1]]!.shape!, name: layer.name)
+                if #available(iOS 15.0, *) {
+                    output = graph.reshape(input0, shape: tensors[layer.input[1]]!.shape!, name: layer.name)
+                } else {
+                    fatalError("not implemented yet")
+                }
             case .reshapeStatic(let params):
-                output = graph.reshape(input0, shape: params.targetShape.map { NSNumber(value: $0) }, name: layer.name)
+                if #available(iOS 15.0, *) {
+                    output = graph.reshape(input0, shape: params.targetShape.map { NSNumber(value: $0) }, name: layer.name)
+                } else {
+                    fatalError("not implemented yet")
+                }
             case .reshapeDynamic(let params):
-                output = graph.reshape(input0, shapeTensor: tensors[layer.input[1]]!, name: layer.name)
+                if #available(iOS 15.0, *) {
+                    output = graph.reshape(input0, shapeTensor: tensors[layer.input[1]]!, name: layer.name)
+                } else {
+                    fatalError("not implemented yet")
+                }
             case .rankPreservingReshape(let params):
                 fatalError("not implemented yet")
             case .constantPad(let params):
                 fatalError("not implemented yet")
             /// Random Distributions
             case .randomNormalLike(let params):
-                let descriptor = MPSGraphRandomOpDescriptor(distribution: .normal, dataType: dataType)!
-                descriptor.mean = params.mean
-                descriptor.standardDeviation = params.stdDev
-                output = graph.randomTensor(
-                    withShape: input0.shape!,
-                    descriptor: descriptor,
-                    seed: Int(params.seed),
-                    name: layer.name)
+                if #available(iOS 15.4, *) {
+                    let descriptor = MPSGraphRandomOpDescriptor(distribution: .normal, dataType: dataType)!
+                    descriptor.mean = params.mean
+                    descriptor.standardDeviation = params.stdDev
+                    output = graph.randomTensor(
+                        withShape: input0.shape!,
+                        descriptor: descriptor,
+                        seed: Int(params.seed),
+                        name: layer.name)
+                } else {
+                    fatalError("not implemented yet")
+                }
             case .randomNormalStatic(let params):
-                let descriptor = MPSGraphRandomOpDescriptor(distribution: .normal, dataType: dataType)!
-                descriptor.mean = params.mean
-                descriptor.standardDeviation = params.stdDev
-                output = graph.randomTensor(
-                    withShape: params.outputShape.map { NSNumber(value: $0 ) },
-                    descriptor: descriptor,
-                    seed: Int(params.seed),
-                    name: layer.name)
+                if #available(iOS 15.4, *) {
+                    let descriptor = MPSGraphRandomOpDescriptor(distribution: .normal, dataType: dataType)!
+                    descriptor.mean = params.mean
+                    descriptor.standardDeviation = params.stdDev
+                    output = graph.randomTensor(
+                        withShape: params.outputShape.map { NSNumber(value: $0 ) },
+                        descriptor: descriptor,
+                        seed: Int(params.seed),
+                        name: layer.name)
+                } else {
+                    fatalError("not implemented yet")
+                }
             case .randomNormalDynamic(let params):
-                let descriptor = MPSGraphRandomOpDescriptor(distribution: .normal, dataType: dataType)!
-                descriptor.mean = params.mean
-                descriptor.standardDeviation = params.stdDev
-                output = graph.randomTensor(
-                    withShapeTensor: input0,
-                    descriptor: descriptor,
-                    seed: Int(params.seed),
-                    name: layer.name)
+                if #available(iOS 15.4, *) {
+                    let descriptor = MPSGraphRandomOpDescriptor(distribution: .normal, dataType: dataType)!
+                    descriptor.mean = params.mean
+                    descriptor.standardDeviation = params.stdDev
+                    output = graph.randomTensor(
+                        withShapeTensor: input0,
+                        descriptor: descriptor,
+                        seed: Int(params.seed),
+                        name: layer.name)
+                } else {
+                    fatalError("not implemented yet")
+                }
             case .randomUniformLike(let params):
-                let descriptor = MPSGraphRandomOpDescriptor(distribution: .uniform, dataType: dataType)!
-                descriptor.min = params.minVal
-                descriptor.max = params.maxVal
-                output = graph.randomTensor(
-                    withShape: input0.shape!,
-                    descriptor: descriptor,
-                    seed: Int(params.seed),
-                    name: layer.name)
+                if #available(iOS 15.4, *) {
+                    let descriptor = MPSGraphRandomOpDescriptor(distribution: .uniform, dataType: dataType)!
+                    descriptor.min = params.minVal
+                    descriptor.max = params.maxVal
+                    output = graph.randomTensor(
+                        withShape: input0.shape!,
+                        descriptor: descriptor,
+                        seed: Int(params.seed),
+                        name: layer.name)
+                } else {
+                    fatalError("not implemented yet")
+                }
             case .randomUniformStatic(let params):
-                let descriptor = MPSGraphRandomOpDescriptor(distribution: .uniform, dataType: dataType)!
-                descriptor.min = params.minVal
-                descriptor.max = params.maxVal
-                output = graph.randomTensor(
-                    withShape: params.outputShape.map { NSNumber(value: $0 ) },
-                    descriptor: descriptor,
-                    seed: Int(params.seed),
-                    name: layer.name)
+                if #available(iOS 15.4, *) {
+                    let descriptor = MPSGraphRandomOpDescriptor(distribution: .uniform, dataType: dataType)!
+                    descriptor.min = params.minVal
+                    descriptor.max = params.maxVal
+                    output = graph.randomTensor(
+                        withShape: params.outputShape.map { NSNumber(value: $0 ) },
+                        descriptor: descriptor,
+                        seed: Int(params.seed),
+                        name: layer.name)
+                } else {
+                    fatalError("not implemented yet")
+                }
             case .randomUniformDynamic(let params):
-                let descriptor = MPSGraphRandomOpDescriptor(distribution: .uniform, dataType: dataType)!
-                descriptor.min = params.minVal
-                descriptor.max = params.maxVal
-                output = graph.randomTensor(
-                    withShapeTensor: input0,
-                    descriptor: descriptor,
-                    seed: Int(params.seed),
-                    name: layer.name)
+                if #available(iOS 15.4, *) {
+                    let descriptor = MPSGraphRandomOpDescriptor(distribution: .uniform, dataType: dataType)!
+                    descriptor.min = params.minVal
+                    descriptor.max = params.maxVal
+                    output = graph.randomTensor(
+                        withShapeTensor: input0,
+                        descriptor: descriptor,
+                        seed: Int(params.seed),
+                        name: layer.name)
+                } else {
+                    fatalError("not implemented yet")
+                }
             case .randomBernoulliLike(let params):
                 fatalError("not implemented yet")
             case .randomBernoulliStatic(let params):
