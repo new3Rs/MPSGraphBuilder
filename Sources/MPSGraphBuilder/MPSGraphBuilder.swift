@@ -455,7 +455,7 @@ class MPSGraphBuilder {
                 fatalError("not implemented yet")
             /// Control Flow related Layers
             case .copy(let params):
-                fatalError("not implemented yet")
+                output = graph.identity(with: input0, name: layer.name)
             case .branch(let params):
                 fatalError("not implemented yet")
             case .loop(let params):
