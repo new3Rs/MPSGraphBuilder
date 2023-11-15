@@ -295,7 +295,11 @@ class MPSGraphBuilder {
                 tensors[input.name] = placeholder
             }
         }
-        
+
+        guard case .neuralNetwork(_) = model.type! else {
+                fatalError("not implemented yet")
+        }
+
         for layer in model.neuralNetwork.layers {
             if case .loadConstant(let params) = layer.layer {
                 tensors[layer.output[0]] = try convert(weights: params.data, shape: params.shape)
@@ -341,9 +345,29 @@ class MPSGraphBuilder {
                     epsilon: params.epsilon,
                     name: layer.name)
             case .mvn(let params):
-                fatalError("not implemented yet")
+                assert(params.normalizeVariance) // normalizeVariance = falseの時の仕様がわからない
+                let axes = (0..<input0.shape!.count).suffix(params.acrossChannels ? 3: 2).map { NSNumber(value: $0) }
+                output = graph.normalize(
+                    input0,
+                    mean: graph.mean(of: input0, axes: axes, name: nil),
+                    variance: graph.variance(of: input0, axes: axes, name: nil),
+                    gamma: nil,
+                    beta: nil,
+                    epsilon: params.epsilon,
+                    name: layer.name)
             case .l2Normalize(let params):
-                fatalError("not implemented yet")
+                output = graph.division(
+                    input0,
+                    graph.squareRoot(
+                        with: graph.addition(
+                            graph.reductionSum(
+                                with: graph.square(with: input0, name: nil),
+                                axes: (0..<input0.shape!.count).map { NSNumber(value: $0) },
+                                name: nil),
+                            graph.constant(Double(params.epsilon), dataType: dataType),
+                            name: nil),
+                        name: nil),
+                    name: layer.name)
             case .softmax(let params):
                 output = graph.softMax(with: input0, axis: 1, name: layer.name)
             case .lrn(let params):
