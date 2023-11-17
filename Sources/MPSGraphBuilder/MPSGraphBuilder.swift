@@ -62,23 +62,45 @@ class MPSGraphBuilder {
                 fatalError("not supported yet")
             }
         } else if !weights.float16Value.isEmpty {
-            assert(dataType == .float16)
-            if doTranspose {
-                let size = weights.float16Value.count / MemoryLayout<Float16>.stride
-                let transposed = [Float16](unsafeUninitializedCapacity: size) { ptr, initializedSize in
-                    weights.float16Value.withUnsafeBytes { dataPtr in
-                        let dataSize = MemoryLayout<Float16>.stride / MemoryLayout<UInt8>.stride
-                        for x in 0..<shape[1] {
-                            for y in 0..<shape[0] {
-                                ptr[x * shape[0] + y] = dataPtr.load(fromByteOffset: dataSize * (y * shape[1] + x), as: Float16.self)
+            let size = weights.float16Value.count / MemoryLayout<Float16>.stride
+            switch dataType {
+                case .float16:
+                if doTranspose {
+                    let transposed = [Float16](unsafeUninitializedCapacity: size) { ptr, initializedSize in
+                        weights.float16Value.withUnsafeBytes { dataPtr in
+                            let dataSize = MemoryLayout<Float16>.stride / MemoryLayout<UInt8>.stride
+                            for x in 0..<shape[1] {
+                                for y in 0..<shape[0] {
+                                    ptr[x * shape[0] + y] = dataPtr.load(fromByteOffset: dataSize * (y * shape[1] + x), as: Float16.self)
+                                }
                             }
+                            initializedSize = size
                         }
-                        initializedSize = size
+                    }
+                    data = transposed.withUnsafeBufferPointer { Data(buffer: $0) }
+                } else {
+                    data = weights.float16Value
+                }
+                case .float32:
+                let float16s = [Float16](unsafeUninitializedCapacity: size) { ptr, initializedSize in
+                    weights.float16Value.copyBytes(to: ptr, count: weights.float16Value.count)
+                    initializedSize = size
+                }
+                var converted = [Float](repeating: 0.0, count: size)
+                if doTranspose {
+                    for x in 0..<shape[1] {
+                        for y in 0..<shape[0] {
+                            converted[x * shape[0] + y] = Float(float16s[y * shape[1] + x])
+                        }
+                    }
+                } else {
+                    for i in 0..<size {
+                        converted[i] = Float(float16s[i])
                     }
                 }
-                data = transposed.withUnsafeBufferPointer { Data(buffer: $0) }
-            } else {
-                data = weights.float16Value
+                data = converted.withUnsafeBufferPointer { Data(buffer: $0) }
+                default:
+                fatalError("not supported yet")
             }
         } else {
             throw ConvertError.wrongFormat

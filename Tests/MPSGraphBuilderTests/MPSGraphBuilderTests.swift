@@ -35,4 +35,50 @@ final class MPSGraphBuilderTests: XCTestCase {
             )
         }
     }
+
+    func testPerformanceSAI() throws {
+        let dataType = MPSDataType.float16
+        let batch = NSNumber(value: 1)
+        guard let device = MTLCreateSystemDefaultDevice() else { 
+           fatalError( "Failed to get the system's default Metal device." ) 
+        }
+        let (_, _, outputs, graph) = try mlmodelToMPSGraph(from: Bundle.module.url(forResource: "MLModels/SAI_773_fp16", withExtension: "mlmodel")!, dataType: dataType)
+        let feeds = Dictionary<MPSGraphTensor, MPSGraphTensorData>(uniqueKeysWithValues: graph.placeholderTensors.map {
+            var shape = $0.shape!
+            if shape[0] == -1 {
+                shape[0] = batch
+            }
+            return ($0, MPSGraphTensorData(MPSNDArray(device: device, descriptor: MPSNDArrayDescriptor(dataType: dataType, shape: shape))))
+        })
+        measure {
+            let _ = graph.run(
+                feeds: feeds,
+                targetTensors: outputs.map { k, v in v },
+                targetOperations: nil
+            )
+        }
+    }
+
+    func testPerformanceSAIFloat32() throws {
+        let dataType = MPSDataType.float32
+        let batch = NSNumber(value: 1)
+        guard let device = MTLCreateSystemDefaultDevice() else { 
+           fatalError( "Failed to get the system's default Metal device." ) 
+        }
+        let (_, _, outputs, graph) = try mlmodelToMPSGraph(from: Bundle.module.url(forResource: "MLModels/SAI_773_fp16", withExtension: "mlmodel")!, dataType: dataType)
+        let feeds = Dictionary<MPSGraphTensor, MPSGraphTensorData>(uniqueKeysWithValues: graph.placeholderTensors.map {
+            var shape = $0.shape!
+            if shape[0] == -1 {
+                shape[0] = batch
+            }
+            return ($0, MPSGraphTensorData(MPSNDArray(device: device, descriptor: MPSNDArrayDescriptor(dataType: dataType, shape: shape))))
+        })
+        measure {
+            let _ = graph.run(
+                feeds: feeds,
+                targetTensors: outputs.map { k, v in v },
+                targetOperations: nil
+            )
+        }
+    }
 }
