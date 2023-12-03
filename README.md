@@ -1,6 +1,8 @@
 # MPSGraphBuilder
 MPSGraphBuilder builds an MPSGraph instance from a .mlmodel format file.
 
+This project was terminated since mpsgraphtool in macOS Sonoma is for you.
+
 # WARNING
 Many layers are not tested, just implemented.
 
